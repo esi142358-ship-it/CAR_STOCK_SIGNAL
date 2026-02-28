@@ -1,0 +1,56 @@
+name: Daily Stock Signal Scanner
+
+on:
+  schedule:
+    # Runs at 6:00 AM IST = 00:30 UTC, Monday to Friday
+    - cron: '30 0 * * 1-5'
+  workflow_dispatch:   # Allows manual trigger from GitHub UI anytime
+
+jobs:
+  scan-and-email:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run stock scanner
+        run: python stock_signal_scanner.py
+
+      - name: Send email with report
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.GMAIL_ADDRESS }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: "📈 NSE Buy Signals Report – ${{ env.TODAY }}"
+          to: ${{ secrets.RECIPIENT_EMAIL }}
+          from: NSE Scanner <${{ secrets.GMAIL_ADDRESS }}>
+          body: |
+            Hello,
+
+            Please find attached today's NSE Buy Signals Report.
+
+            Scan ran on: ${{ env.TODAY }}
+
+            This is an automated email sent by your GitHub Actions stock scanner.
+
+            Regards,
+            NSE Scanner Bot
+          attachments: buy_signals_report.xlsx
+        env:
+          TODAY: ${{ steps.date.outputs.date }}
+
+      - name: Set today's date
+        id: date
+        run: echo "date=$(date +'%d %B %Y')" >> $GITHUB_OUTPUT
