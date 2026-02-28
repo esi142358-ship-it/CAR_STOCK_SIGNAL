@@ -2,8 +2,8 @@ name: Daily Stock Signal Scanner
 
 on:
   schedule:
-    # Runs at 6:00 AM IST = 00:30 UTC, Monday to Friday
-    - cron: '30 0 * * 1-5'
+    # Runs at 4:00 PM IST = 10:30 UTC, Monday to Friday
+    - cron: '30 10 * * 1-5'
   workflow_dispatch:   # Allows manual trigger from GitHub UI anytime
 
 jobs:
@@ -22,8 +22,23 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Set today's date
+        id: date
+        run: echo "date=$(date +'%d %B %Y')" >> $GITHUB_OUTPUT
+
       - name: Run stock scanner
         run: python stock_signal_scanner.py
+
+      - name: Archive report in GitHub
+        run: |
+          mkdir -p reports
+          DATED_FILE="reports/buy_signals_$(date +'%Y-%m-%d').xlsx"
+          cp buy_signals_report.xlsx "$DATED_FILE"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$DATED_FILE"
+          git commit -m "Report: $(date +'%d %B %Y')" || echo "Nothing to commit"
+          git push
 
       - name: Send email with report
         uses: dawidd6/action-send-mail@v3
@@ -33,7 +48,7 @@ jobs:
           secure: true
           username: ${{ secrets.GMAIL_ADDRESS }}
           password: ${{ secrets.GMAIL_APP_PASSWORD }}
-          subject: "📈 NSE Buy Signals Report – ${{ env.TODAY }}"
+          subject: "NSE Buy Signals Report - ${{ steps.date.outputs.date }}"
           to: ${{ secrets.RECIPIENT_EMAIL }}
           from: NSE Scanner <${{ secrets.GMAIL_ADDRESS }}>
           body: |
@@ -41,16 +56,10 @@ jobs:
 
             Please find attached today's NSE Buy Signals Report.
 
-            Scan ran on: ${{ env.TODAY }}
+            Scan ran on: ${{ steps.date.outputs.date }}
 
             This is an automated email sent by your GitHub Actions stock scanner.
 
             Regards,
             NSE Scanner Bot
           attachments: buy_signals_report.xlsx
-        env:
-          TODAY: ${{ steps.date.outputs.date }}
-
-      - name: Set today's date
-        id: date
-        run: echo "date=$(date +'%d %B %Y')" >> $GITHUB_OUTPUT
