@@ -1,226 +1,14 @@
-# ============================================================
-#  CAR + SMA Strategy — Daily Auto Scanner
-#  Runs every day at 4:30 PM IST (11:00 UTC)
-#  Also runs after US market close at 10:30 PM IST (17:00 UTC)
-#  And can be triggered manually anytime
-# ============================================================
-#
-#  WHAT THIS DOES:
-#  ─────────────────────────────────────────────────────────
-#  India Run (4:30 PM IST):
-#    Step 1 → stock_signal_scanner.py   → buy_signals_report.xlsx
-#    Step 2 → sma_filter.py             → sma_filter_report.xlsx
-#    Step 3 → stock_picker.py           → stock_picker_report.xlsx
-#
-#  USA Run (10:30 PM IST):
-#    Step 1 → us_car_signal_scanner.py  → us_buy_signals_report.xlsx
-#    Step 2 → us_sma_filter.py          → us_sma_filter_report.xlsx
-#
-#  ARTIFACTS (download from GitHub Actions):
-#    india_car_signals/     → buy_signals_report.xlsx
-#    india_sma_filter/      → sma_filter_report.xlsx
-#    india_stock_picker/    → stock_picker_report.xlsx (BEST PICKS!)
-#    usa_car_signals/       → us_buy_signals_report.xlsx
-#    usa_sma_filter/        → us_sma_filter_report.xlsx
-#    all_reports/           → ALL 5 files together ← download this!
-#
-#  SETUP (do once):
-#  ─────────────────────────────────────────────────────────
-#  1. Put this file in:  .github/workflows/car_sma_daily.yml
-#  2. Put all .py files in:  car_strategy/ folder in your repo
-#  3. Put nse_master_reference.csv in: car_strategy/ folder
-#  4. Push to GitHub
-#  5. Go to Actions tab → Enable workflows
-#  6. Done! Reports download automatically every evening!
-#
-#  FOLDER STRUCTURE IN YOUR REPO:
-#  ─────────────────────────────────────────────────────────
-#  your-repo/
-#  ├── .github/
-#  │   └── workflows/
-#  │       └── car_sma_daily.yml         ← this file
-#  ├── car_strategy/
-#  │   ├── stock_signal_scanner.py
-#  │   ├── sma_filter.py
-#  │   ├── stock_picker.py
-#  │   ├── nse_master_reference.csv      ← your India stock list
-#  │   ├── fundamental_scores.csv        ← optional (for stock picker)
-#  └── us_stocks/
-#      └── car_strategy/
-#          ├── us_car_signal_scanner.py
-#          ├── us_sma_filter.py
-#          └── us_master_reference.csv   ← your USA stock list
-#
-# ============================================================
-
-name: CAR + SMA Daily Scanner
+name: Daily Stock Signal Scanner
 
 on:
-  # India scan — 4:30 PM IST = 11:00 UTC
   schedule:
-    - cron: '0 11 * * 1-5'    # India: Mon-Fri 4:30 PM IST
+    # Runs at 4:00 PM IST = 10:30 UTC, Monday to Friday
+    - cron: '30 10 * * 1-5'
+  workflow_dispatch:   # Allows manual trigger from GitHub UI anytime
 
-    - cron: '0 17 * * 1-5'    # USA: Mon-Fri 10:30 PM IST (after US close)
-
-  # Run manually anytime from GitHub Actions tab
-  workflow_dispatch:
-    inputs:
-      run_india:
-        description: 'Run India scanner'
-        required: false
-        default: 'true'
-        type: boolean
-      run_usa:
-        description: 'Run USA scanner'
-        required: false
-        default: 'true'
-        type: boolean
-
-# ─────────────────────────────────────────────────────────────
-#  INDIA JOB
-# ─────────────────────────────────────────────────────────────
 jobs:
-  india_scan:
-    name: "India — CAR + SMA Scanner"
+  scan-and-email:
     runs-on: ubuntu-latest
-
-    # Run on schedule OR manual trigger with india=true
-    if: |
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.run_india == 'true')
-
-    defaults:
-      run:
-        working-directory: car_strategy
-
-    steps:
-      # 1. Checkout your code
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # 2. Set up Python
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      # 3. Install required packages
-      - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install yfinance>=0.2.40 pandas openpyxl requests python-dateutil
-
-      # 4. Run India CAR Signal Scanner
-      - name: Run India CAR Scanner
-        run: |
-          echo "================================================"
-          echo "  STEP 1: India CAR Signal Scanner"
-          echo "  Date: $(date '+%Y-%m-%d %H:%M IST')"
-          echo "================================================"
-          python stock_signal_scanner.py
-        continue-on-error: false
-
-      # 5. Run India SMA Filter (reads buy_signals_report.xlsx)
-      - name: Run India SMA Filter
-        run: |
-          echo "================================================"
-          echo "  STEP 2: India SMA Filter"
-          echo "  Condition: Price > SMA50, SMA100, SMA200"
-          echo "  AND Price <= SMA200 x 1.10 (within 10%)"
-          echo "================================================"
-          python sma_filter.py
-        continue-on-error: false
-
-      # 6. Run India Stock Picker (CAR + Fundamental + SMA combined)
-      - name: Run India Stock Picker
-        run: |
-          echo "================================================"
-          echo "  STEP 3: India Stock Picker"
-          echo "  Combines CAR + SMA + Fundamentals"
-          echo "================================================"
-          python stock_picker.py
-        continue-on-error: true    # optional — don't fail if scores missing
-
-      # 7. Show summary in logs
-      - name: Show India Summary
-        run: |
-          echo "================================================"
-          echo "  INDIA REPORTS GENERATED:"
-          echo "================================================"
-          python3 - << 'PYEOF'
-          import os, sys
-          reports = [
-              ("buy_signals_report.xlsx",  "India CAR Signals"),
-              ("sma_filter_report.xlsx",   "India SMA Filter"),
-              ("stock_picker_report.xlsx", "India Stock Picker"),
-          ]
-          all_ok = True
-          for fname, label in reports:
-              if os.path.exists(fname):
-                  size = os.path.getsize(fname)
-                  print(f"  OK  {label:<30} {fname}  ({size//1024} KB)")
-              else:
-                  print(f"  --  {label:<30} {fname}  (not generated)")
-                  if "stock_picker" not in fname:
-                      all_ok = False
-          if all_ok:
-              print("\n  India scan COMPLETE!")
-          else:
-              print("\n  Some reports missing!")
-              sys.exit(1)
-          PYEOF
-
-      # 8. Upload individual reports as separate artifacts
-      - name: Upload India CAR Signals
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: india_car_signals_${{ github.run_number }}
-          path: car_strategy/buy_signals_report.xlsx
-          retention-days: 7
-
-      - name: Upload India SMA Filter
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: india_sma_filter_${{ github.run_number }}
-          path: car_strategy/sma_filter_report.xlsx
-          retention-days: 7
-
-      - name: Upload India Stock Picker
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: india_stock_picker_${{ github.run_number }}
-          path: car_strategy/stock_picker_report.xlsx
-          retention-days: 7
-
-      # 9. Upload ALL India reports together
-      - name: Upload All India Reports
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: INDIA_ALL_REPORTS_${{ github.run_number }}
-          path: |
-            car_strategy/buy_signals_report.xlsx
-            car_strategy/sma_filter_report.xlsx
-            car_strategy/stock_picker_report.xlsx
-          retention-days: 30
-
-# ─────────────────────────────────────────────────────────────
-#  COMBINED SUMMARY JOB (runs after BOTH India + USA complete)
-# ─────────────────────────────────────────────────────────────
-  combined_summary:
-    name: "Combined India + USA Summary"
-    runs-on: ubuntu-latest
-    needs: [india_scan, usa_scan]   # waits for both to finish
-
-    # Only run if both succeeded
-    if: |
-      always() &&
-      (needs.india_scan.result == 'success' || needs.india_scan.result == 'skipped') &&
-      (needs.usa_scan.result == 'success' || needs.usa_scan.result == 'skipped')
 
     steps:
       - name: Checkout repository
@@ -232,323 +20,46 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install pandas openpyxl
+        run: pip install -r requirements.txt
 
-      # Download India artifacts
-      - name: Download India Reports
-        uses: actions/download-artifact@v4
-        with:
-          name: INDIA_ALL_REPORTS_${{ github.run_number }}
-          path: combined/india/
-        continue-on-error: true
+      - name: Set today's date
+        id: date
+        run: echo "date=$(date +'%d %B %Y')" >> $GITHUB_OUTPUT
 
-      # Download USA artifacts
-      - name: Download USA Reports
-        uses: actions/download-artifact@v4
-        with:
-          name: USA_ALL_REPORTS_${{ github.run_number }}
-          path: combined/usa/
-        continue-on-error: true
+      - name: Run stock scanner
+        run: python stock_signal_scanner.py
 
-      # Create combined summary Excel
-      - name: Create Combined Summary
+      - name: Archive report in GitHub
         run: |
-          python3 - << 'PYEOF'
-          import os
-          import pandas as pd
-          from openpyxl import Workbook
-          from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-          from openpyxl.utils import get_column_letter
-          from datetime import date
+          mkdir -p reports
+          DATED_FILE="reports/buy_signals_$(date +'%Y-%m-%d').xlsx"
+          cp buy_signals_report.xlsx "$DATED_FILE"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$DATED_FILE"
+          git commit -m "Report: $(date +'%d %B %Y')" || echo "Nothing to commit"
+          git push
 
-          wb        = Workbook()
-          DARK_BLUE = "1F4E79"; TEAL  = "1F7391"; GREEN_C = "375623"
-          WHITE     = "FFFFFF"; LGREY = "F5F5F5"; RED_C   = "C00000"
-          GREEN_BG  = "E2EFDA"; GOLD  = "FFF2CC"; RED_BG  = "FFE2E2"
-          STAR3_BG  = "C6EFCE"; STAR2 = "FFEB9C"
-
-          thin   = Side(style="thin", color="BFBFBF")
-          border = Border(left=thin, right=thin, top=thin, bottom=thin)
-          ctr    = Alignment(horizontal="center", vertical="center", wrap_text=True)
-          lft    = Alignment(horizontal="left",   vertical="center")
-
-          def hdr(cell, bg=DARK_BLUE, fg=WHITE):
-              cell.font      = Font(bold=True, color=fg, name="Arial", size=10)
-              cell.fill      = PatternFill("solid", fgColor=bg)
-              cell.alignment = ctr; cell.border = border
-
-          def dat(cell, bg=None, bold=False, color="000000", align=None):
-              cell.font      = Font(bold=bold, color=color, name="Arial", size=10)
-              cell.alignment = align if align else ctr
-              cell.border    = border
-              if bg: cell.fill = PatternFill("solid", fgColor=bg)
-
-          def title_row(ws, text, ncols, bg=DARK_BLUE, fg=WHITE):
-              ws.merge_cells(f"A1:{get_column_letter(ncols)}1")
-              c = ws["A1"]
-              c.value     = text
-              c.font      = Font(bold=True, color=fg, name="Arial", size=13)
-              c.fill      = PatternFill("solid", fgColor=bg)
-              c.alignment = Alignment(horizontal="center", vertical="center")
-              ws.row_dimensions[1].height = 38
-
-          # ── Sheet 1: Run Summary ────────────────────────────────────────
-          ws1       = wb.active
-          ws1.title = "Run Summary"
-          ws1.column_dimensions["A"].width = 30
-          ws1.column_dimensions["B"].width = 20
-          ws1.column_dimensions["C"].width = 20
-
-          title_row(ws1, f"CAR + SMA DAILY RUN SUMMARY  |  {date.today()}", 3)
-
-          india_sma   = "combined/india/sma_filter_report.xlsx"
-          india_car   = "combined/india/buy_signals_report.xlsx"
-          india_pick  = "combined/india/stock_picker_report.xlsx"
-          usa_sma     = "combined/usa/us_sma_filter_report.xlsx"
-          usa_car     = "combined/usa/us_buy_signals_report.xlsx"
-
-          def count_signals(fpath, sheet=0):
-              try:
-                  df = pd.read_excel(fpath, sheet_name=sheet, header=1)
-                  df = df.dropna(subset=["Symbol"])
-                  return len(df)
-              except Exception:
-                  try:
-                      df = pd.read_excel(fpath, sheet_name=sheet)
-                      df = df.dropna(subset=["Symbol"])
-                      return len(df)
-                  except Exception:
-                      return "?"
-
-          def count_sweet(fpath):
-              """Count sweet spot signals from SMA filter sheet 2."""
-              try:
-                  df = pd.read_excel(fpath, sheet_name="SMA Sweet Spot", header=1)
-                  df = df.dropna(subset=["Symbol"])
-                  return len(df)
-              except Exception:
-                  return "?"
-
-          rows = [
-              ("── INDIA ──────────────────────", "", ""),
-              ("India CAR Signals Today",
-               count_signals(india_car), "buy_signals_report.xlsx"),
-              ("India SMA Sweet Spot (Best!)",
-               count_sweet(india_sma),   "sma_filter_report.xlsx"),
-              ("India Stock Picker Picks",
-               count_signals(india_pick),"stock_picker_report.xlsx"),
-              ("", "", ""),
-              ("── USA ────────────────────────", "", ""),
-              ("USA CAR Signals Today",
-               count_signals(usa_car),   "us_buy_signals_report.xlsx"),
-              ("USA SMA Sweet Spot (Best!)",
-               count_sweet(usa_sma),     "us_sma_filter_report.xlsx"),
-              ("", "", ""),
-              ("── REPORTS AVAILABLE ──────────", "", ""),
-              ("India CAR Signals",  "✅" if os.path.exists(india_car)  else "❌", "buy_signals_report.xlsx"),
-              ("India SMA Filter",   "✅" if os.path.exists(india_sma)  else "❌", "sma_filter_report.xlsx"),
-              ("India Stock Picker", "✅" if os.path.exists(india_pick) else "❌", "stock_picker_report.xlsx"),
-              ("USA CAR Signals",    "✅" if os.path.exists(usa_car)    else "❌", "us_buy_signals_report.xlsx"),
-              ("USA SMA Filter",     "✅" if os.path.exists(usa_sma)    else "❌", "us_sma_filter_report.xlsx"),
-          ]
-
-          hdrs = ["Report", "Count / Status", "File Name"]
-          for ci, h in enumerate(hdrs, 1):
-              hdr(ws1.cell(2, ci))
-              ws1.cell(2, ci).value = h
-          ws1.row_dimensions[2].height = 26
-
-          for ri, (label, val, fname) in enumerate(rows, 3):
-              ws1.row_dimensions[ri].height = 20
-              is_sec = (val == "" and fname == "")
-              bg = LGREY if ri % 2 == 0 else WHITE
-
-              for ci, v in enumerate([label, val, fname], 1):
-                  cell = ws1.cell(ri, ci)
-                  cell.value = v
-                  cell.border = border
-                  if is_sec:
-                      cell.font = Font(bold=True, color=WHITE, name="Arial", size=10)
-                      cell.fill = PatternFill("solid", fgColor=TEAL)
-                      cell.alignment = lft
-                  else:
-                      cell.fill      = PatternFill("solid", fgColor=bg)
-                      cell.alignment = lft
-                      if ci == 2:
-                          if str(v) == "✅":
-                              dat(cell, bg=GREEN_BG, bold=True, color=GREEN_C)
-                          elif str(v) == "❌":
-                              dat(cell, bg=RED_BG, bold=True, color=RED_C)
-                          else:
-                              try:
-                                  n = int(v)
-                                  dat(cell, bg=STAR3_BG if n > 0 else bg,
-                                      bold=True, color=GREEN_C if n > 0 else "000000")
-                              except Exception:
-                                  dat(cell, bg=bg)
-                      else:
-                          cell.font = Font(bold=(ci==1), name="Arial", size=10,
-                                           color=DARK_BLUE if ci==1 else "555555")
-
-          # ── Sheet 2: India SMA Sweet Spot ──────────────────────────────
-          ws2       = wb.create_sheet("India SMA Sweet Spot")
-          india_sweet = pd.DataFrame()
-          if os.path.exists(india_sma):
-              try:
-                  india_sweet = pd.read_excel(india_sma, sheet_name="SMA Sweet Spot", header=1)
-                  india_sweet = india_sweet.dropna(subset=["Symbol"])
-              except Exception:
-                  pass
-
-          if not india_sweet.empty:
-              title_row(ws2,
-                  f"INDIA SMA SWEET SPOT  |  {len(india_sweet)} stocks  |  {date.today()}",
-                  len(india_sweet.columns), bg="375623")
-              for ci, cn in enumerate(india_sweet.columns, 1):
-                  hdr(ws2.cell(2, ci), bg="375623")
-                  ws2.cell(2, ci).value = cn
-              ws2.row_dimensions[2].height = 26
-              for ri, (_, row) in enumerate(india_sweet.iterrows(), 3):
-                  ws2.append(list(row))
-                  ws2.row_dimensions[ri].height = 18
-                  bg = STAR3_BG if ri % 2 == 0 else STAR2
-                  for ci in range(1, len(india_sweet.columns)+1):
-                      dat(ws2.cell(ri, ci), bg=bg)
-                      ws2.cell(ri, ci).font = Font(name="Arial", size=10, color=GREEN_C)
-                  ws2.cell(ri, 1).font = Font(bold=True, name="Arial", size=10, color=DARK_BLUE)
-              ws2.freeze_panes = "A3"
-          else:
-              ws2.cell(2, 1).value = "No India SMA filter data available"
-
-          # ── Sheet 3: USA SMA Sweet Spot ────────────────────────────────
-          ws3       = wb.create_sheet("USA SMA Sweet Spot")
-          usa_sweet = pd.DataFrame()
-          if os.path.exists(usa_sma):
-              try:
-                  usa_sweet = pd.read_excel(usa_sma, sheet_name="SMA Sweet Spot", header=1)
-                  usa_sweet = usa_sweet.dropna(subset=["Symbol"])
-              except Exception:
-                  pass
-
-          if not usa_sweet.empty:
-              title_row(ws3,
-                  f"USA SMA SWEET SPOT  |  {len(usa_sweet)} stocks  |  {date.today()}",
-                  len(usa_sweet.columns), bg=TEAL)
-              for ci, cn in enumerate(usa_sweet.columns, 1):
-                  hdr(ws3.cell(2, ci), bg=TEAL)
-                  ws3.cell(2, ci).value = cn
-              ws3.row_dimensions[2].height = 26
-              for ri, (_, row) in enumerate(usa_sweet.iterrows(), 3):
-                  ws3.append(list(row))
-                  ws3.row_dimensions[ri].height = 18
-                  bg = STAR3_BG if ri % 2 == 0 else STAR2
-                  for ci in range(1, len(usa_sweet.columns)+1):
-                      dat(ws3.cell(ri, ci), bg=bg)
-                      ws3.cell(ri, ci).font = Font(name="Arial", size=10, color=GREEN_C)
-                  ws3.cell(ri, 1).font = Font(bold=True, name="Arial", size=10, color=DARK_BLUE)
-              ws3.freeze_panes = "A3"
-          else:
-              ws3.cell(2, 1).value = "No USA SMA filter data available"
-
-          # ── Sheet 4: How to Use ────────────────────────────────────────
-          ws4 = wb.create_sheet("How to Use")
-          ws4.column_dimensions["A"].width = 22
-          ws4.column_dimensions["B"].width = 58
-          title_row(ws4, "HOW TO USE — Daily Reports Guide", 2, bg=DARK_BLUE)
-
-          guide = [
-              ("DAILY ROUTINE", ""),
-              ("India Step 1", "4:30 PM IST — GitHub auto-runs scanner"),
-              ("India Step 2", "SMA filter runs automatically after scanner"),
-              ("India Step 3", "Stock Picker runs automatically after SMA"),
-              ("USA Step 1",   "10:30 PM IST — GitHub auto-runs US scanner"),
-              ("USA Step 2",   "US SMA filter runs automatically after"),
-              ("", ""),
-              ("DOWNLOADING REPORTS", ""),
-              ("Go to",      "GitHub → Actions tab → Latest run"),
-              ("Download",   "INDIA_ALL_REPORTS — all 3 India files together"),
-              ("Download",   "USA_ALL_REPORTS   — both USA files together"),
-              ("Or",         "Download individual files separately"),
-              ("", ""),
-              ("WHICH SHEET TO USE FIRST?", ""),
-              ("India Best Picks",  "sma_filter_report.xlsx → CAR + SMA Combined sheet"),
-              ("India Full List",   "stock_picker_report.xlsx → Todays BUY List sheet"),
-              ("India All Signals", "buy_signals_report.xlsx → all CAR signals"),
-              ("USA Best Picks",    "us_sma_filter_report.xlsx → CAR + SMA Combined sheet"),
-              ("USA All Signals",   "us_buy_signals_report.xlsx → all US CAR signals"),
-              ("", ""),
-              ("COMBINED SUMMARY", ""),
-              ("This file",         "combined_summary.xlsx — quick count of all signals"),
-              ("India Sweet Spot",  "Sheet 2 — India stocks passing ALL 4 SMA conditions"),
-              ("USA Sweet Spot",    "Sheet 3 — USA stocks passing ALL 4 SMA conditions"),
-              ("", ""),
-              ("SMA CONDITION REMINDER", ""),
-              ("Condition 1",  "Price > SMA 50   (short term uptrend)"),
-              ("Condition 2",  "Price > SMA 100  (medium term uptrend)"),
-              ("Condition 3",  "Price > SMA 200  (long term uptrend)"),
-              ("Condition 4",  "Price <= SMA 200 x 1.10  (not overbought)"),
-              ("Sweet Spot",   "0-5% above 200 SMA = STRONG signal"),
-              ("Good Zone",    "5-10% above 200 SMA = GOOD signal"),
-          ]
-
-          for ri, (lbl, val) in enumerate(guide, 2):
-              ws4.row_dimensions[ri].height = 22
-              is_sec = (val == "")
-              for ci, v in enumerate([lbl, val], 1):
-                  cell        = ws4.cell(ri, ci)
-                  cell.value  = v if not is_sec else (lbl if ci==1 else "")
-                  cell.border = border
-                  if is_sec:
-                      cell.font      = Font(bold=True, color=WHITE, name="Arial", size=10)
-                      cell.fill      = PatternFill("solid", fgColor=TEAL)
-                      cell.alignment = lft
-                  else:
-                      bg = LGREY if ri%2==0 else WHITE
-                      cell.fill      = PatternFill("solid", fgColor=bg)
-                      cell.alignment = lft
-                      cell.font      = Font(bold=(ci==1), name="Arial", size=10,
-                                            color=DARK_BLUE if ci==1 else "000000")
-
-          wb.save("combined/combined_summary.xlsx")
-          print("Combined summary saved: combined/combined_summary.xlsx")
-          PYEOF
-
-      # Upload combined summary
-      - name: Upload Combined Summary
-        uses: actions/upload-artifact@v4
-        if: always()
+      - name: Send email with report
+        uses: dawidd6/action-send-mail@v3
         with:
-          name: COMBINED_SUMMARY_${{ github.run_number }}
-          path: combined/combined_summary.xlsx
-          retention-days: 30
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.GMAIL_ADDRESS }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: "NSE Buy Signals Report - ${{ steps.date.outputs.date }}"
+          to: ${{ secrets.RECIPIENT_EMAIL }}
+          from: NSE Scanner <${{ secrets.GMAIL_ADDRESS }}>
+          body: |
+            Hello,
 
-      # Upload everything together in one zip
-      - name: Upload ALL Reports Together
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: ALL_REPORTS_INDIA_USA_${{ github.run_number }}
-          path: |
-            combined/india/
-            combined/usa/
-            combined/combined_summary.xlsx
-          retention-days: 30
+            Please find attached today's NSE Buy Signals Report.
 
-      - name: Final Summary
-        if: always()
-        run: |
-          echo ""
-          echo "=============================================="
-          echo "  DAILY CAR + SMA SCAN COMPLETE"
-          echo "  Date: $(date '+%Y-%m-%d')"
-          echo "=============================================="
-          echo ""
-          echo "  Download from GitHub Actions:"
-          echo "  → INDIA_ALL_REPORTS      (3 India files)"
-          echo "  → USA_ALL_REPORTS        (2 USA files)"
-          echo "  → COMBINED_SUMMARY       (quick overview)"
-          echo "  → ALL_REPORTS_INDIA_USA  (everything!)"
-          echo ""
-          echo "  Open sma_filter_report.xlsx"
-          echo "  → 'CAR + SMA Combined' sheet = BEST PICKS!"
-          echo "=============================================="
+            Scan ran on: ${{ steps.date.outputs.date }}
+
+            This is an automated email sent by your GitHub Actions stock scanner.
+
+            Regards,
+            NSE Scanner Bot
+          attachments: buy_signals_report.xlsx
