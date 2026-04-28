@@ -4,7 +4,7 @@ on:
   schedule:
     # Runs at 4:00 PM IST = 10:30 UTC, Monday to Friday
     - cron: '30 10 * * 1-5'
-  workflow_dispatch:   # Allows manual trigger from GitHub UI anytime
+  workflow_dispatch:
 
 jobs:
   scan-and-archive:
@@ -20,7 +20,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r car_strategy/requirements.txt
 
       - name: Set today's date
         id: date
