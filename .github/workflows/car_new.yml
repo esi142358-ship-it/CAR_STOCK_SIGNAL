@@ -1,0 +1,41 @@
+name: Daily Stock Signal Scanner
+
+on:
+  schedule:
+    # Runs at 4:00 PM IST = 10:30 UTC, Monday to Friday
+    - cron: '30 10 * * 1-5'
+  workflow_dispatch:   # Allows manual trigger from GitHub UI anytime
+
+jobs:
+  scan-and-archive:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Set today's date
+        id: date
+        run: echo "date=$(date +'%d %B %Y')" >> $GITHUB_OUTPUT
+
+      - name: Run India stock scanner
+        run: python stock_signal_scanner.py --market NSE
+
+      - name: Archive report in GitHub
+        run: |
+          mkdir -p reports
+          OUTPUT_FILE="reports/NSE_buy_signals_report.xlsx"
+          mv buy_signals_report.xlsx "$OUTPUT_FILE"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$OUTPUT_FILE"
+          git commit -m "NSE Report: $(date +'%d %B %Y')" || echo "Nothing to commit"
+          git push
