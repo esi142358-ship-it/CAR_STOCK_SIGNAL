@@ -27,7 +27,7 @@ jobs:
         run: echo "date=$(date +'%d %B %Y')" >> $GITHUB_OUTPUT
 
       - name: Run India stock scanner
-        run: python stock_signal_scanner.py --market NSE
+        run: python car_strategy/stock_signal_scanner.py --market NSE
 
       - name: Archive report in GitHub
         run: |
