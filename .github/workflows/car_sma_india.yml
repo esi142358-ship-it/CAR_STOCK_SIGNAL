@@ -1,41 +1,84 @@
-name: Daily Stock Signal Scanner
+_name: CAR + SMA Daily Scanner (India Only)
 
 on:
+  # India scan — 4:30 PM IST = 11:00 UTC
   schedule:
-    # Runs at 4:00 PM IST = 10:30 UTC, Monday to Friday
-    - cron: '30 10 * * 1-5'
+    - cron: '0 11 * * 1-5'    # Mon-Fri 4:30 PM IST
+
+  # Run manually anytime
   workflow_dispatch:
 
 jobs:
-  scan-and-archive:
+  india_scan:
+    name: "India — CAR + SMA Scanner"
     runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: car_strategy
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Install dependencies
-        run: pip install -r car_strategy/requirements.txt
-
-      - name: Set today's date
-        id: date
-        run: echo "date=$(date +'%d %B %Y')" >> $GITHUB_OUTPUT
-
-      - name: Run India stock scanner
-        run: python car_strategy/stock_signal_scanner.py --market NSE
-
-      - name: Archive report in GitHub
         run: |
-          mkdir -p reports
-          OUTPUT_FILE="reports/NSE_buy_signals_report.xlsx"
-          mv buy_signals_report.xlsx "$OUTPUT_FILE"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "$OUTPUT_FILE"
-          git commit -m "NSE Report: $(date +'%d %B %Y')" || echo "Nothing to commit"
-          git push
+          pip install --upgrade pip
+          pip install yfinance pandas openpyxl requests python-dateutil gspread oauth2client
+
+      - name: Run India CAR Scanner
+        run: python stock_signal_scanner.py
+
+      - name: Run India SMA Filter
+        run: python sma_filter.py
+
+      - name: Run India Stock Picker
+        run: python stock_picker.py
+
+      - name: Save Final Report (India Only)
+        run: |
+          python3 - << 'PYEOF'
+          import pandas as pd, os, json, gspread
+          from oauth2client.service_account import ServiceAccountCredentials
+
+          # Load India stock picker output
+          df = pd.read_excel("stock_picker_report.xlsx")
+
+          # Add Volume column if not already present
+          if "Volume" not in df.columns:
+              df["Volume"] = None
+
+          # Save single consolidated report
+          os.makedirs("aircraft", exist_ok=True)
+          df.to_excel("aircraft/India_Final_Report.xlsx", index=False)
+
+          # Push to Google Sheet
+          creds_json = os.environ.get('GCP_CREDENTIALS')
+          creds_dict = json.loads(creds_json)
+          scope = ["https://spreadsheets.google.com/feeds","https://www.googleapis.com/auth/drive"]
+          creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+          client = gspread.authorize(creds)
+
+          spreadsheet_id = "1bkwZz3tuclh_Iux_l56HpwEiYbekCNLug_4U2h_xjOM"
+          try:
+              ws_final = client.open_by_key(spreadsheet_id).worksheet("final")
+          except:
+              ws_final = client.open_by_key(spreadsheet_id).add_worksheet(title="final", rows="300", cols="10")
+
+          ws_final.clear()
+          ws_final.update([df.columns.values.tolist()] + df.values.tolist())
+          print("✅ Final report saved to aircraft and Google Sheet")
+          PYEOF
+
+      - name: Upload Final Report Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: INDIA_FINAL_REPORT_${{ github.run_number }}
+          path: aircraft/India_Final_Report.xlsx
+          retention-days: 30
