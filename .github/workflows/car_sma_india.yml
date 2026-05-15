@@ -1,59 +1,20 @@
-name: CAR + SMA Daily Scanner (India Only)
-
-on:
-  # India scan — 4:30 PM IST = 11:00 UTC
-  schedule:
-    - cron: '0 11 * * 1-5'    # Mon-Fri 4:30 PM IST
-
-  # Run manually anytime
-  workflow_dispatch:
-
-jobs:
-  india_scan:
-    name: "India — CAR + SMA Scanner"
-    runs-on: ubuntu-latest
-
-    defaults:
-      run:
-        working-directory: car_strategy
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install yfinance pandas openpyxl requests python-dateutil gspread oauth2client
-
-      - name: Run India CAR Scanner
-        env:
-          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
-        run: python stock_signal_scanner.py
-
-      - name: Run India SMA Filter
-        env:
-          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
-        run: python sma_filter.py
-
-      - name: Run India Stock Picker
-        env:
-          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
-        run: python stock_picker.py
-
-      - name: Save Final Report (India Only)
+       name: Save Final Report (India Only)
         env:
           GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
         run: |
           python3 - << 'PYEOF'
-          import pandas as pd, os, json, gspread
+          import pandas as pd, os, json, gspread, numpy as np
           from oauth2client.service_account import ServiceAccountCredentials
+
+          def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+              def clean_value(x):
+                  try:
+                      if pd.isna(x) or x in [np.inf, -np.inf]:
+                          return ""
+                  except Exception:
+                      pass
+                  return x
+              return df.applymap(clean_value)
 
           # Load India stock picker output
           df = pd.read_excel("stock_picker_report.xlsx")
@@ -61,6 +22,9 @@ jobs:
           # Add Volume column if not already present
           if "Volume" not in df.columns:
               df["Volume"] = None
+
+          # Clean before saving
+          df = clean_dataframe(df)
 
           # Save single consolidated report
           os.makedirs("aircraft", exist_ok=True)
@@ -83,10 +47,3 @@ jobs:
           ws_final.update([df.columns.values.tolist()] + df.values.tolist())
           print("✅ Final report saved to aircraft and Google Sheet")
           PYEOF
-
-      - name: Upload Final Report Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: INDIA_FINAL_REPORT_${{ github.run_number }}
-          path: aircraft/India_Final_Report.xlsx
-          retention-days: 30
