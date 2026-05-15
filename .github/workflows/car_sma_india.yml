@@ -1,4 +1,4 @@
-_name: CAR + SMA Daily Scanner (India Only)
+name: CAR + SMA Daily Scanner (India Only)
 
 on:
   # India scan — 4:30 PM IST = 11:00 UTC
