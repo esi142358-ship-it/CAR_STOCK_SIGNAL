@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install yfinance pandas openpyxl requests python-dateutil gspread oauth2client
+          pip install yfinance pandas openpyxl requests python-dateutil gspread oauth2client matplotlib
 
       - name: Run India CAR Scanner
         env:
@@ -44,7 +44,7 @@ jobs:
           GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
         run: python stock_picker.py
 
-      - name: Save Final Report (India Only)
+      - name: Save Multi-Sheet SMA Report
         env:
           GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
         run: |
@@ -52,43 +52,53 @@ jobs:
           import pandas as pd, os, json, gspread, numpy as np
           from oauth2client.service_account import ServiceAccountCredentials
 
-          # Load India stock picker output
-          df = pd.read_excel("stock_picker_report.xlsx")
+          # Load SMA filter output
+          df = pd.read_excel("sma_filter_report.xlsx")
 
-          # Add Volume column if not already present
-          if "Volume" not in df.columns:
-              df["Volume"] = None
+          # Split into categories
+          sweet_spot = df[df['Sweet Spot'] == 'YES']
+          failed = df[df['Sweet Spot'] == 'NO']
 
-          # Clean DataFrame: replace NaN/inf with empty string
-          df = df.replace([np.inf, -np.inf], "")
-          df = df.fillna("")
+          summary = pd.DataFrame({
+              "Category": ["Sweet Spot", "Failed"],
+              "Count": [len(sweet_spot), len(failed)]
+          })
 
-          # Save single consolidated report
+          # Save multi-sheet Excel
           os.makedirs("aircraft", exist_ok=True)
-          df.to_excel("aircraft/India_Final_Report.xlsx", index=False)
+          with pd.ExcelWriter("aircraft/India_SMA_Report.xlsx", engine="openpyxl") as writer:
+              df.to_excel(writer, sheet_name="All CAR + SMA", index=False)
+              sweet_spot.to_excel(writer, sheet_name="SMA Sweet Spot", index=False)
+              failed.to_excel(writer, sheet_name="Failed SMA Filter", index=False)
+              summary.to_excel(writer, sheet_name="Summary Dashboard", index=False)
 
           # Push to Google Sheet
-          creds_json = os.environ.get('GCP_CREDENTIALS')
-          creds_dict = json.loads(creds_json)
+          creds_dict = json.loads(os.environ['GCP_CREDENTIALS'])
           scope = ["https://spreadsheets.google.com/feeds","https://www.googleapis.com/auth/drive"]
           creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
           client = gspread.authorize(creds)
 
-          spreadsheet_id = "1bkwZz3tuclh_Iux_l56HpwEiYbekCNLug_4U2h_xjOM"
+          spreadsheet_id = "YOUR_SHEET_ID"
 
-          try:
-              ws_final = client.open_by_key(spreadsheet_id).worksheet("final")
-          except:
-              ws_final = client.open_by_key(spreadsheet_id).add_worksheet(title="final", rows="300", cols="10")
+          for sheet_name, data in {
+              "All CAR + SMA": df,
+              "SMA Sweet Spot": sweet_spot,
+              "Failed SMA Filter": failed,
+              "Summary Dashboard": summary
+          }.items():
+              try:
+                  ws = client.open_by_key(spreadsheet_id).worksheet(sheet_name)
+              except:
+                  ws = client.open_by_key(spreadsheet_id).add_worksheet(title=sheet_name, rows="500", cols="20")
+              ws.clear()
+              ws.update([list(data.columns)] + data.astype(str).values.tolist())
 
-          ws_final.clear()
-          ws_final.update([list(df.columns)] + df.astype(str).values.tolist())
-          print("✅ Final report saved to aircraft and Google Sheet")
+          print("✅ Multi-sheet SMA report saved to aircraft and Google Sheet")
           PYEOF
 
-      - name: Upload Final Report Artifact
+      - name: Upload SMA Report Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: INDIA_FINAL_REPORT_${{ github.run_number }}
-          path: aircraft/India_Final_Report.xlsx
+          name: INDIA_SMA_REPORT_${{ github.run_number }}
+          path: aircraft/India_SMA_Report.xlsx
           retention-days: 30
