@@ -6,12 +6,15 @@ on:
 jobs:
   push_gsheet:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: car_strategy
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Download SMA Filter Report
+        uses: actions/download-artifact@v4
+        with:
+          name: INDIA_ALL_REPORTS_30   # या जो भी artifact name है
+          path: car_strategy
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -23,6 +26,6 @@ jobs:
           pip install pandas gspread oauth2client google-api-python-client numpy openpyxl
 
       - name: Push to Google Sheet
+        run: python car_strategy/push_to_gsheet.py
         env:
           GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
-        run: python push_to_gsheet.py
