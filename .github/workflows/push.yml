@@ -1,0 +1,28 @@
+name: Push SMA Filter to Google Sheet
+
+on:
+  workflow_dispatch:
+
+jobs:
+  push_gsheet:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: car_strategy
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pandas gspread oauth2client google-api-python-client numpy openpyxl
+
+      - name: Push to Google Sheet
+        env:
+          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+        run: python push_to_gsheet.py
