@@ -53,7 +53,7 @@
 #
 # ============================================================
 
-name: CAR + SMA Daily Scanner
+name: CAR + SMA Daily Scanner (INDIA)
 
 on:
   # India scan — 4:30 PM IST = 11:00 UTC
