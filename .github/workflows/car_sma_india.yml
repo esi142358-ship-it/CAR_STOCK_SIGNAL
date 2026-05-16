@@ -1,4 +1,36 @@
-       name: Save Final Report (India Only)
+name: CAR + SMA Daily Scanner (India Only)
+
+on:
+  # India scan — 4:30 PM IST = 11:00 UTC
+  schedule:
+    - cron: '0 11 * * 1-5'    # Mon-Fri 4:30 PM IST
+
+  workflow_dispatch:
+
+jobs:
+  india_scan:
+    name: "India — CAR + SMA Scanner"
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: car_strategy
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pandas numpy gspread oauth2client openpyxl
+
+      - name: Run Stock Picker
         env:
           GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
         run: |
@@ -17,6 +49,9 @@
               return df.applymap(clean_value)
 
           # Load India stock picker output
+          if not os.path.exists("stock_picker_report.xlsx"):
+              raise FileNotFoundError("⚠️ stock_picker_report.xlsx not found")
+
           df = pd.read_excel("stock_picker_report.xlsx")
 
           # Add Volume column if not already present
