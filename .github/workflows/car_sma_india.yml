@@ -53,6 +53,7 @@ jobs:
           GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
         run: |
           python3 - << 'PYEOF'
+          import os
           import pandas as pd, json, gspread
           from oauth2client.service_account import ServiceAccountCredentials
           from googleapiclient.discovery import build
