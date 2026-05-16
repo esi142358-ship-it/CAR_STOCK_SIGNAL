@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install yfinance>=0.2.40 pandas openpyxl requests python-dateutil gspread oauth2client
+          pip install yfinance>=0.2.40 pandas openpyxl requests python-dateutil gspread oauth2client google-api-python-client
 
       - name: Run India CAR Scanner
         run: python stock_signal_scanner.py
@@ -37,22 +37,6 @@ jobs:
 
       - name: Run India Stock Picker
         run: python stock_picker.py
-
-      - name: Show India Summary
-        run: |
-          python3 - << 'PYEOF'
-          import os
-          reports = [
-              ("buy_signals_report.xlsx",  "India CAR Signals"),
-              ("sma_filter_report.xlsx",   "India SMA Filter"),
-              ("stock_picker_report.xlsx", "India Stock Picker"),
-          ]
-          for fname, label in reports:
-              if os.path.exists(fname):
-                  print(f"✅ {label:<25} {fname}")
-              else:
-                  print(f"❌ {label:<25} {fname}")
-          PYEOF
 
       - name: Upload All India Reports
         uses: actions/upload-artifact@v4
@@ -64,34 +48,60 @@ jobs:
             car_strategy/stock_picker_report.xlsx
           retention-days: 30
 
-      - name: Push SMA Filter to Google Sheet
+      - name: Push Full SMA Filter Workbook to Google Sheet
         env:
           GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
         run: |
           python3 - << 'PYEOF'
-          import pandas as pd, os, json, gspread
+          import pandas as pd, json, gspread
           from oauth2client.service_account import ServiceAccountCredentials
+          from googleapiclient.discovery import build
 
-          # Load SMA filter report
-          df = pd.read_excel("sma_filter_report.xlsx")
+          # Load Excel workbook
+          xls = pd.ExcelFile("sma_filter_report.xlsx")
 
-          # Remove CAR Day columns (not needed in Google Sheet)
-          drop_cols = [c for c in df.columns if "CAR Day" in c]
-          df = df.drop(columns=drop_cols, errors="ignore")
-
-          # Authorize Google Sheets
+          # Authorize
           creds_dict = json.loads(os.environ['GCP_CREDENTIALS'])
-          scope = ["https://spreadsheets.google.com/feeds","https://www.googleapis.com/auth/drive"]
+          scope = ["https://www.googleapis.com/auth/spreadsheets"]
           creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
           client = gspread.authorize(creds)
+          service = build('sheets', 'v4', credentials=creds)
 
           spreadsheet_id = "1bkwZz3tuclh_Iux_l56HpwEiYbekCNLug_4U2h_xjOM"
-          try:
-              ws = client.open_by_key(spreadsheet_id).worksheet("India SMA Filter")
-          except:
-              ws = client.open_by_key(spreadsheet_id).add_worksheet(title="India SMA Filter", rows="1000", cols="20")
+          spreadsheet = client.open_by_key(spreadsheet_id)
 
-          ws.clear()
-          ws.update([list(df.columns)] + df.astype(str).values.tolist())
-          print("✅ SMA Filter report pushed to Google Sheet (India SMA Filter)")
+          for sheet_name in xls.sheet_names:
+              df = pd.read_excel(xls, sheet_name=sheet_name)
+              try:
+                  ws = spreadsheet.worksheet(sheet_name)
+              except:
+                  ws = spreadsheet.add_worksheet(title=sheet_name, rows="1000", cols="20")
+              ws.clear()
+              ws.update([list(df.columns)] + df.astype(str).values.tolist())
+
+              # Apply formatting: header row bold + background
+              requests = [
+                  {
+                      "repeatCell": {
+                          "range": {
+                              "sheetId": ws.id,
+                              "startRowIndex": 0,
+                              "endRowIndex": 1
+                          },
+                          "cell": {
+                              "userEnteredFormat": {
+                                  "backgroundColor": {"red": 0.12, "green": 0.30, "blue": 0.79},
+                                  "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}}
+                              }
+                          },
+                          "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                      }
+                  }
+              ]
+              service.spreadsheets().batchUpdate(
+                  spreadsheetId=spreadsheet_id,
+                  body={"requests": requests}
+              ).execute()
+
+          print("✅ Full SMA Filter workbook duplicated with formatting in Google Sheet")
           PYEOF
