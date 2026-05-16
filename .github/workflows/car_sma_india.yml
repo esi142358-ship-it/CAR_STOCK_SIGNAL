@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install yfinance>=0.2.40 pandas openpyxl requests python-dateutil gspread oauth2client google-api-python-client
+          pip install yfinance>=0.2.40 pandas openpyxl requests python-dateutil gspread oauth2client google-api-python-client numpy
 
       - name: Run India CAR Scanner
         run: python stock_signal_scanner.py
@@ -53,8 +53,7 @@ jobs:
           GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
         run: |
           python3 - << 'PYEOF'
-          import os
-          import pandas as pd, json, gspread
+          import os, pandas as pd, json, gspread, numpy as np
           from oauth2client.service_account import ServiceAccountCredentials
           from googleapiclient.discovery import build
 
@@ -68,17 +67,23 @@ jobs:
           client = gspread.authorize(creds)
           service = build('sheets', 'v4', credentials=creds)
 
-          spreadsheet_id = "1bkwZz3tuclh_Iux_l56HpwEiYbekCNLug_4U2h_xjOM"
+          spreadsheet_id = "YOUR_SHEET_ID"
           spreadsheet = client.open_by_key(spreadsheet_id)
 
           for sheet_name in xls.sheet_names:
               df = pd.read_excel(xls, sheet_name=sheet_name)
+
+              # Clean values for JSON compliance
+              df = df.replace([np.inf, -np.inf], "")
+              df = df.fillna("")
+              df = df.astype(str)
+
               try:
                   ws = spreadsheet.worksheet(sheet_name)
               except:
                   ws = spreadsheet.add_worksheet(title=sheet_name, rows="1000", cols="20")
               ws.clear()
-              ws.update([list(df.columns)] + df.astype(str).values.tolist())
+              ws.update([list(df.columns)] + df.values.tolist())
 
               # Apply formatting: header row bold + background
               requests = [
@@ -99,10 +104,62 @@ jobs:
                       }
                   }
               ]
+
+              # Sweet Spot rows green, Failed rows red
+              if "SMA Signal" in df.columns:
+                  for ri, val in enumerate(df["SMA Signal"], 1):
+                      if isinstance(val, str) and "STRONG" in val or "GOOD" in val:
+                          color = {"red": 0.80, "green": 0.95, "blue": 0.80}
+                      elif isinstance(val, str) and "OVERBOUGHT" in val or "BELOW" in val:
+                          color = {"red": 0.95, "green": 0.80, "blue": 0.80}
+                      else:
+                          continue
+                      requests.append({
+                          "repeatCell": {
+                              "range": {
+                                  "sheetId": ws.id,
+                                  "startRowIndex": ri,
+                                  "endRowIndex": ri+1
+                              },
+                              "cell": {
+                                  "userEnteredFormat": {
+                                      "backgroundColor": color
+                                  }
+                              },
+                              "fields": "userEnteredFormat(backgroundColor)"
+                          }
+                      })
+
               service.spreadsheets().batchUpdate(
                   spreadsheetId=spreadsheet_id,
                   body={"requests": requests}
               ).execute()
 
-          print("✅ Full SMA Filter workbook duplicated with formatting in Google Sheet")
+          # Add How to Use sheet
+          try:
+              ws = spreadsheet.worksheet("How to Use")
+          except:
+              ws = spreadsheet.add_worksheet(title="How to Use", rows="50", cols="5")
+          ws.clear()
+          guide = [
+              ["DAILY ROUTINE", ""],
+              ["India Step 1", "4:30 PM IST — GitHub auto-runs scanner"],
+              ["India Step 2", "SMA filter runs automatically after scanner"],
+              ["India Step 3", "Stock Picker runs automatically after SMA"],
+              ["", ""],
+              ["DOWNLOAD REPORTS", ""],
+              ["GitHub Actions", "Download INDIA_ALL_REPORTS artifact"],
+              ["Google Sheet", "See all SMA Filter sheets here"],
+              ["", ""],
+              ["SMA CONDITION REMINDER", ""],
+              ["Condition 1", "Price > SMA 50"],
+              ["Condition 2", "Price > SMA 100"],
+              ["Condition 3", "Price > SMA 200"],
+              ["Condition 4", "Price <= SMA200 x 1.10 (not overbought)"],
+              ["Sweet Spot", "0-5% above 200 SMA = STRONG"],
+              ["Good Zone", "5-10% above 200 SMA = GOOD"]
+          ]
+          ws.update(guide)
+
+          print("✅ Full SMA Filter workbook duplicated with attractive formatting in Google Sheet")
           PYEOF
