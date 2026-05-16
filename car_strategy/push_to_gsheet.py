@@ -2,8 +2,8 @@ import os, pandas as pd, json, gspread, numpy as np
 from oauth2client.service_account import ServiceAccountCredentials
 from googleapiclient.discovery import build
 
-# Load Excel workbook
-xls = pd.ExcelFile("aircraft/sma_filter_report.xlsx")
+# Correct path to your Excel report
+xls = pd.ExcelFile("car_strategy/sma_filter_report.xlsx")
 
 # Authorize
 creds_dict = json.loads(os.environ['GCP_CREDENTIALS'])
@@ -75,3 +75,4 @@ for sheet_name in xls.sheet_names:
         ).execute()
 
 print("✅ SMA Filter workbook pushed with colour indicators to Google Sheet")
+
