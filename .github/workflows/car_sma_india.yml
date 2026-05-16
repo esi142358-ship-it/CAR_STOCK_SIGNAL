@@ -52,34 +52,28 @@ jobs:
           import pandas as pd, os, json, gspread, numpy as np
           from oauth2client.service_account import ServiceAccountCredentials
 
-          def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-              def clean_value(x):
-                  try:
-                      if pd.isna(x) or x in [np.inf, -np.inf]:
-                          return ""
-                  except Exception:
-                      pass
-                  return x
-              return df.applymap(clean_value)
-
           # Load India stock picker output
           df = pd.read_excel("stock_picker_report.xlsx")
 
+          # Add Volume column if not already present
           if "Volume" not in df.columns:
               df["Volume"] = None
 
-          df = clean_dataframe(df)
+          # Clean DataFrame: replace NaN/inf with empty string
+          df = df.replace([np.inf, -np.inf], "")
+          df = df.fillna("")
 
+          # Save single consolidated report
           os.makedirs("aircraft", exist_ok=True)
           df.to_excel("aircraft/India_Final_Report.xlsx", index=False)
 
+          # Push to Google Sheet
           creds_json = os.environ.get('GCP_CREDENTIALS')
           creds_dict = json.loads(creds_json)
           scope = ["https://spreadsheets.google.com/feeds","https://www.googleapis.com/auth/drive"]
           creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
           client = gspread.authorize(creds)
 
-          # 👉 Change this ID per repo/Sheet
           spreadsheet_id = "1bkwZz3tuclh_Iux_l56HpwEiYbekCNLug_4U2h_xjOM"
 
           try:
