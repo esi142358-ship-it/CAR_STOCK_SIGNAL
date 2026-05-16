@@ -27,78 +27,71 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install yfinance pandas openpyxl requests python-dateutil gspread oauth2client matplotlib
+          pip install yfinance>=0.2.40 pandas openpyxl requests python-dateutil gspread oauth2client
 
       - name: Run India CAR Scanner
-        env:
-          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
         run: python stock_signal_scanner.py
 
       - name: Run India SMA Filter
-        env:
-          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
         run: python sma_filter.py
 
       - name: Run India Stock Picker
-        env:
-          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
         run: python stock_picker.py
 
-      - name: Save Multi-Sheet SMA Report
+      - name: Show India Summary
+        run: |
+          python3 - << 'PYEOF'
+          import os
+          reports = [
+              ("buy_signals_report.xlsx",  "India CAR Signals"),
+              ("sma_filter_report.xlsx",   "India SMA Filter"),
+              ("stock_picker_report.xlsx", "India Stock Picker"),
+          ]
+          for fname, label in reports:
+              if os.path.exists(fname):
+                  print(f"✅ {label:<25} {fname}")
+              else:
+                  print(f"❌ {label:<25} {fname}")
+          PYEOF
+
+      - name: Upload All India Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: INDIA_ALL_REPORTS_${{ github.run_number }}
+          path: |
+            car_strategy/buy_signals_report.xlsx
+            car_strategy/sma_filter_report.xlsx
+            car_strategy/stock_picker_report.xlsx
+          retention-days: 30
+
+      - name: Push SMA Filter to Google Sheet
         env:
           GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
         run: |
           python3 - << 'PYEOF'
-          import pandas as pd, os, json, gspread, numpy as np
+          import pandas as pd, os, json, gspread
           from oauth2client.service_account import ServiceAccountCredentials
 
-          # Load SMA filter output
+          # Load SMA filter report
           df = pd.read_excel("sma_filter_report.xlsx")
 
-          # Split into categories
-          sweet_spot = df[df['Sweet Spot'] == 'YES']
-          failed = df[df['Sweet Spot'] == 'NO']
+          # Remove CAR Day columns (not needed in Google Sheet)
+          drop_cols = [c for c in df.columns if "CAR Day" in c]
+          df = df.drop(columns=drop_cols, errors="ignore")
 
-          summary = pd.DataFrame({
-              "Category": ["Sweet Spot", "Failed"],
-              "Count": [len(sweet_spot), len(failed)]
-          })
-
-          # Save multi-sheet Excel
-          os.makedirs("aircraft", exist_ok=True)
-          with pd.ExcelWriter("aircraft/India_SMA_Report.xlsx", engine="openpyxl") as writer:
-              df.to_excel(writer, sheet_name="All CAR + SMA", index=False)
-              sweet_spot.to_excel(writer, sheet_name="SMA Sweet Spot", index=False)
-              failed.to_excel(writer, sheet_name="Failed SMA Filter", index=False)
-              summary.to_excel(writer, sheet_name="Summary Dashboard", index=False)
-
-          # Push to Google Sheet
+          # Authorize Google Sheets
           creds_dict = json.loads(os.environ['GCP_CREDENTIALS'])
           scope = ["https://spreadsheets.google.com/feeds","https://www.googleapis.com/auth/drive"]
           creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
           client = gspread.authorize(creds)
 
-          spreadsheet_id = "YOUR_SHEET_ID"
+          spreadsheet_id = "1bkwZz3tuclh_Iux_l56HpwEiYbekCNLug_4U2h_xjOM"
+          try:
+              ws = client.open_by_key(spreadsheet_id).worksheet("India SMA Filter")
+          except:
+              ws = client.open_by_key(spreadsheet_id).add_worksheet(title="India SMA Filter", rows="1000", cols="20")
 
-          for sheet_name, data in {
-              "All CAR + SMA": df,
-              "SMA Sweet Spot": sweet_spot,
-              "Failed SMA Filter": failed,
-              "Summary Dashboard": summary
-          }.items():
-              try:
-                  ws = client.open_by_key(spreadsheet_id).worksheet(sheet_name)
-              except:
-                  ws = client.open_by_key(spreadsheet_id).add_worksheet(title=sheet_name, rows="500", cols="20")
-              ws.clear()
-              ws.update([list(data.columns)] + data.astype(str).values.tolist())
-
-          print("✅ Multi-sheet SMA report saved to aircraft and Google Sheet")
+          ws.clear()
+          ws.update([list(df.columns)] + df.astype(str).values.tolist())
+          print("✅ SMA Filter report pushed to Google Sheet (India SMA Filter)")
           PYEOF
-
-      - name: Upload SMA Report Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: INDIA_SMA_REPORT_${{ github.run_number }}
-          path: aircraft/India_SMA_Report.xlsx
-          retention-days: 30
